@@ -1,3 +1,4 @@
 .env
 bot_database.db
-__pycache__/ .env
+__pycache__/
+*.db
