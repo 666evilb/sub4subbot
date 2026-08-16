@@ -144,7 +144,7 @@ async def create_oxapay_invoice(user_id: int, amount: float):
         "lifeTime": 60,
         "feePaidByPayer": 1,
         "underPaidCoverage": 0,
-        "callbackUrl": f"https://sub4subbot.onrender.com/oxapay_callback",
+        "callbackUrl": "https://sub4subbot.onrender.com/oxapay_callback",
         "description": f"Deposit for User {user_id}"
     }
     
@@ -338,7 +338,7 @@ async def bonus_handler(message: types.Message, state: FSMContext):
 async def help_handler(message: types.Message, state: FSMContext):
     await state.clear()
     help_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Orders Feed Channel", url=f"https://t.me/{ORDERS_CHANNEL[1:]}")],
+        [InlineKeyboardButton(text="📢 Orders Feed Channel", url=f"https://t.me/{ORDERS_CHANNEL.replace('@', '')}")],
         [InlineKeyboardButton(text="💬 Contact Support", url=f"https://t.me/{ADMIN_USERNAME}")]
     ])
     await message.answer(
@@ -438,7 +438,7 @@ async def ref_handler(message: types.Message, state: FSMContext):
 async def earn_handler(message: types.Message, state: FSMContext):
     await state.clear()
     earn_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👣 Open Feed Channel", url=f"https://t.me/{ORDERS_CHANNEL[1:]}")]
+        [InlineKeyboardButton(text="👣 Open Feed Channel", url=f"https://t.me/{ORDERS_CHANNEL.replace('@', '')}")]
     ])
     await message.answer(
         f"👣 Go to the <b>{html.escape(ORDERS_CHANNEL)}</b> channel and subscribe to the advertised channels. "
@@ -471,9 +471,10 @@ async def check_subscription(call: types.CallbackQuery):
             done_c = order_data['done_count']
             msg_id = order_data['channel_msg_id']
 
-            already_sub = await conn.fetchrow("SELECT 1 FROM completed_subs WHERE user_id = $1 AND channel_username = $2", user_id, channel)
+            # Tekshirish: foydalanuvchi bu kanalga ilgarigiroq boshqa orderda obuna bo'lib pul olganmi?
+            already_sub = await conn.fetchrow("SELECT 1 FROM completed_subs WHERE user_id = $1 AND LOWER(channel_username) = LOWER($2)", user_id, channel)
             if already_sub:
-                await call.answer("❌ You have already claimed the reward for this channel!", show_alert=True)
+                await call.answer("❌ You have already claimed reward for joining this channel!", show_alert=True)
                 return
 
             if done_c >= req_c:
@@ -488,6 +489,7 @@ async def check_subscription(call: types.CallbackQuery):
                     await conn.execute("UPDATE orders SET done_count = done_count + 1 WHERE id = $1", order_id)
 
                     new_done_c = done_c + 1
+                    clean_url_channel = channel.replace("@", "")
 
                     if msg_id:
                         if new_done_c >= req_c:
@@ -508,7 +510,7 @@ async def check_subscription(call: types.CallbackQuery):
                             )
                             kb = InlineKeyboardMarkup(inline_keyboard=[
                                 [
-                                    InlineKeyboardButton(text="📢 Join Channel", url=f"https://t.me/{channel[1:]}"),
+                                    InlineKeyboardButton(text="📢 Join Channel", url=f"https://t.me/{clean_url_channel}"),
                                     InlineKeyboardButton(text="✅ Verify", callback_data=f"check_{order_id}")
                                 ]
                             ])
@@ -544,6 +546,14 @@ async def process_channel(message: types.Message, state: FSMContext):
     if not channel.startswith("@"):
         await message.answer("❌ Invalid format! Channel username must start with <code>@</code> (e.g. <code>@my_channel</code>).", parse_mode="HTML")
         return
+
+    # Faol orderlar ichida bu kanal bor-yo'qligini tekshirib olamiz
+    async with db_pool.acquire() as conn:
+        active_order = await conn.fetchrow("SELECT id FROM orders WHERE LOWER(channel_username) = LOWER($1) AND done_count < req_count", channel)
+        if active_order:
+            await message.answer(f"⚠️ <b>{html.escape(channel)}</b> channel already has an active order! Please wait until it completes.", parse_mode="HTML")
+            await state.clear()
+            return
 
     await state.update_data(channel=channel)
     await message.answer(f"🔢 Enter subscriber count (Price: <b>{SUB_PRICE:.3f} USDT</b> per sub):", parse_mode="HTML")
@@ -585,6 +595,7 @@ async def process_count(message: types.Message, state: FSMContext):
         data = await state.get_data()
         channel = data['channel']
         clean_ch_name = html.escape(channel)
+        clean_url_channel = channel.replace("@", "")
 
         try:
             await conn.execute("UPDATE users SET balance = balance - $1 WHERE user_id = $2", total_price, user_id)
@@ -595,7 +606,7 @@ async def process_count(message: types.Message, state: FSMContext):
 
             feed_kb = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="📢 Join Channel", url=f"https://t.me/{channel[1:]}"),
+                    InlineKeyboardButton(text="📢 Join Channel", url=f"https://t.me/{clean_url_channel}"),
                     InlineKeyboardButton(text="✅ Verify", callback_data=f"check_{order_id}")
                 ]
             ])
