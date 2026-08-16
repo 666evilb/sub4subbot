@@ -159,6 +159,10 @@ async def create_oxapay_invoice(user_id: int, amount: float):
                 return pay_url
             return None
 
+# 🌐 CRON-JOB VA HEALTHCHECK UCHUN ASOSIY SAHIFA
+async def health_check_handler(request):
+    return web.Response(text="Bot is running successfully!", status=200)
+
 async def oxapay_webhook_handler(request):
     try:
         data = await request.json()
@@ -210,6 +214,30 @@ async def start_handler(message: types.Message, state: FSMContext):
         f"📢 <b>Orders Feed Channel:</b> {html.escape(ORDERS_CHANNEL)}\n"
         "For more details, check the <b>«ℹ️ Help»</b> menu.",
         reply_markup=main_menu,
+        parse_mode="HTML"
+    )
+
+# 📊 ADMIN STATISTIKA BUYRUG'I
+@dp.message(Command("stats"))
+async def stats_command(message: types.Message, state: FSMContext):
+    await state.clear()
+    if not is_admin(message.from_user):
+        return
+
+    async with db_pool.acquire() as conn:
+        total_users = await conn.fetchval("SELECT COUNT(*) FROM users")
+        total_orders = await conn.fetchval("SELECT COUNT(*) FROM orders")
+        active_orders = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE done_count < req_count")
+        total_completed_subs = await conn.fetchval("SELECT COUNT(*) FROM completed_subs")
+        total_deposits = await conn.fetchval("SELECT COALESCE(SUM(amount), 0.0) FROM deposits WHERE status = 'paid'")
+
+    await message.answer(
+        f"📊 <b>BOT SYSTEM STATISTICS:</b>\n\n"
+        f"👥 <b>Total Users:</b> <code>{total_users}</code>\n"
+        f"🛒 <b>Total Orders Created:</b> <code>{total_orders}</code>\n"
+        f"⏳ <b>Active Orders:</b> <code>{active_orders}</code>\n"
+        f"✅ <b>Total Completed Subs:</b> <code>{total_completed_subs}</code>\n"
+        f"💳 <b>Total Paid Deposits:</b> <code>{total_deposits:.2f} USDT</code>",
         parse_mode="HTML"
     )
 
@@ -457,7 +485,6 @@ async def check_subscription(call: types.CallbackQuery):
             done_c = order_data['done_count']
             msg_id = order_data['channel_msg_id']
 
-            # Bir marta pul olishini tekshirish
             already_sub = await conn.fetchrow("SELECT 1 FROM completed_subs WHERE user_id = $1 AND LOWER(channel_username) = LOWER($2)", user_id, channel)
             if already_sub:
                 await call.answer("❌ You have already claimed reward for joining this channel!", show_alert=True)
@@ -627,6 +654,8 @@ async def main():
         logging.info("✅ Database connected.")
 
         app = web.Application()
+        # Marshrutlar sozlandi
+        app.router.add_get("/", health_check_handler)
         app.router.add_post("/oxapay_callback", oxapay_webhook_handler)
 
         runner = web.AppRunner(app)
