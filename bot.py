@@ -19,7 +19,6 @@ from aiogram.types import (
 )
 from dotenv import load_dotenv
 
-# .env faylini yuklash
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -33,16 +32,15 @@ SUB_REWARD = 0.003
 SUB_PRICE = 0.005
 REFERRAL_BONUS = 0.02
 DAILY_BONUS = 0.005
-MIN_DEPOSIT = 0.5  # Minimal to'lov summasi USDT
+MIN_DEPOSIT = 0.5
 
-WEBHOOK_PORT = int(os.getenv("PORT", 8080))  # Webhook porti
+WEBHOOK_PORT = int(os.getenv("PORT", 8080))
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 db_pool = None
 
-# ----------------- FSM STATES -----------------
 class OrderState(StatesGroup):
     waiting_for_channel = State()
     waiting_for_count = State()
@@ -54,7 +52,6 @@ class AdminAddBalanceState(StatesGroup):
     waiting_for_target_id = State()
     waiting_for_add_amount = State()
 
-# ----------------- DATABASE (SUPABASE / POSTGRESQL) -----------------
 async def init_db():
     global db_pool
     db_pool = await asyncpg.create_pool(
@@ -96,7 +93,7 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_subs ON completed_subs(user_id, channel_username);
             CREATE INDEX IF NOT EXISTS idx_ref ON users(referrer_id);
         ''')
-    logging.info("Ma'lumotlar bazasi va jadvallar muvaffaqiyatli tayyorlandi.")
+    logging.info("Ma'lumotlar bazasi tayyorlandi.")
 
 async def get_or_create_user(user_id: int, referrer_id: int = None):
     async with db_pool.acquire() as conn:
@@ -134,7 +131,6 @@ async def update_balance(user_id: int, amount: float):
 def is_admin(user: types.User):
     return user.username and user.username.lower() == ADMIN_USERNAME.lower()
 
-# ----------------- OXAPAY INTEGRATION -----------------
 async def create_oxapay_invoice(user_id: int, amount: float):
     url = "https://api.oxapay.com/merchants/request"
     payload = {
@@ -191,7 +187,6 @@ async def oxapay_webhook_handler(request):
         logging.error(f"Webhook Error: {e}")
         return web.Response(text="Error", status=400)
 
-# ----------------- KEYBOARDS -----------------
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🎯 Earn"), KeyboardButton(text="🛒 Create Order")],
@@ -200,8 +195,6 @@ main_menu = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
-
-# ----------------- HANDLERS -----------------
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message, state: FSMContext):
@@ -220,7 +213,6 @@ async def start_handler(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# 👑 ADMIN PANEL
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message, state: FSMContext):
     await state.clear()
@@ -306,7 +298,6 @@ async def admin_process_add_amount(message: types.Message, state: FSMContext):
         pass
     await state.clear()
 
-# 🎁 DAILY BONUS
 @dp.message(F.text == "🎁 Daily Bonus")
 async def bonus_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -333,7 +324,6 @@ async def bonus_handler(message: types.Message, state: FSMContext):
                 parse_mode="HTML"
             )
 
-# ℹ️ HELP
 @dp.message(F.text == "ℹ️ Help")
 async def help_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -354,7 +344,6 @@ async def help_handler(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# 💳 WALLET & DEPOSIT
 @dp.message(F.text == "💳 Wallet / Deposit")
 async def wallet_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -412,7 +401,6 @@ async def process_deposit_amount(message: types.Message, state: FSMContext):
     finally:
         await state.clear()
 
-# 👥 REFERRAL
 @dp.message(F.text == "👥 Referral")
 async def ref_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -433,7 +421,6 @@ async def ref_handler(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# 🎯 EARN
 @dp.message(F.text == "🎯 Earn")
 async def earn_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -449,7 +436,6 @@ async def earn_handler(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# 🔄 TASK VERIFICATION
 @dp.callback_query(F.data.startswith("check_"))
 async def check_subscription(call: types.CallbackQuery):
     try:
@@ -471,7 +457,7 @@ async def check_subscription(call: types.CallbackQuery):
             done_c = order_data['done_count']
             msg_id = order_data['channel_msg_id']
 
-            # Tekshirish: foydalanuvchi bu kanalga ilgarigiroq boshqa orderda obuna bo'lib pul olganmi?
+            # Bir marta pul olishini tekshirish
             already_sub = await conn.fetchrow("SELECT 1 FROM completed_subs WHERE user_id = $1 AND LOWER(channel_username) = LOWER($2)", user_id, channel)
             if already_sub:
                 await call.answer("❌ You have already claimed reward for joining this channel!", show_alert=True)
@@ -502,7 +488,7 @@ async def check_subscription(call: types.CallbackQuery):
                             kb = None
                         else:
                             updated_text = (
-                                f"📌 <b>NEW ORDER AVAILABLE</b>\n\n"
+                                f"📌 <b>NEW ORDER CREATED</b>\n\n"
                                 f"📢 <b>Channel:</b> {clean_ch_name}\n"
                                 f"📊 <b>Progress:</b> {new_done_c}/{req_c} Subscribers\n"
                                 f"💰 <b>Reward per sub:</b> <code>{SUB_REWARD:.3f} USDT</code>\n"
@@ -528,7 +514,6 @@ async def check_subscription(call: types.CallbackQuery):
     except Exception as e:
         await call.answer(f"⚠️ Error: {str(e)}", show_alert=True)
 
-# 🛒 CREATE ORDER
 @dp.message(F.text == "🛒 Create Order")
 async def order_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -546,14 +531,6 @@ async def process_channel(message: types.Message, state: FSMContext):
     if not channel.startswith("@"):
         await message.answer("❌ Invalid format! Channel username must start with <code>@</code> (e.g. <code>@my_channel</code>).", parse_mode="HTML")
         return
-
-    # Faol orderlar ichida bu kanal bor-yo'qligini tekshirib olamiz
-    async with db_pool.acquire() as conn:
-        active_order = await conn.fetchrow("SELECT id FROM orders WHERE LOWER(channel_username) = LOWER($1) AND done_count < req_count", channel)
-        if active_order:
-            await message.answer(f"⚠️ <b>{html.escape(channel)}</b> channel already has an active order! Please wait until it completes.", parse_mode="HTML")
-            await state.clear()
-            return
 
     await state.update_data(channel=channel)
     await message.answer(f"🔢 Enter subscriber count (Price: <b>{SUB_PRICE:.3f} USDT</b> per sub):", parse_mode="HTML")
@@ -644,11 +621,10 @@ async def process_count(message: types.Message, state: FSMContext):
 
     await state.clear()
 
-# ----------------- MAIN SERVER RUNNER -----------------
 async def main():
     try:
         await init_db()
-        logging.info("✅ Supabase Connected.")
+        logging.info("✅ Database connected.")
 
         app = web.Application()
         app.router.add_post("/oxapay_callback", oxapay_webhook_handler)
@@ -657,7 +633,6 @@ async def main():
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", WEBHOOK_PORT)
         await site.start()
-        logging.info(f"🌐 Webhook Server running on port {WEBHOOK_PORT}")
 
         logging.info("🤖 Bot Polling started...")
         await dp.start_polling(bot)
