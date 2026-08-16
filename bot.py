@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import datetime
+import html
 import asyncpg
 from aiohttp import web
 import aiohttp
@@ -120,8 +121,8 @@ async def send_ref_notification(referrer_id: int, new_user_id: int):
     try:
         await bot.send_message(
             chat_id=referrer_id,
-            text=f"🎉 **New Referral Joined!**\n\nUser ID `{new_user_id}` used your link.\nYou earned `+{REFERRAL_BONUS:.3f} USDT`!",
-            parse_mode="Markdown"
+            text=f"🎉 <b>New Referral Joined!</b>\n\nUser ID <code>{new_user_id}</code> used your link.\nYou earned <code>+{REFERRAL_BONUS:.3f} USDT</code>!",
+            parse_mode="HTML"
         )
     except Exception:
         pass
@@ -143,7 +144,7 @@ async def create_oxapay_invoice(user_id: int, amount: float):
         "lifeTime": 60,
         "feePaidByPayer": 1,
         "underPaidCoverage": 0,
-        "callbackUrl": f"https://your-domain.com/oxapay_callback", # O'zingizning server/ngrok havolangiz
+        "callbackUrl": f"https://sub4subbot.onrender.com/oxapay_callback",
         "description": f"Deposit for User {user_id}"
     }
     
@@ -154,7 +155,6 @@ async def create_oxapay_invoice(user_id: int, amount: float):
                 track_id = data.get("trackId")
                 pay_url = data.get("payLink")
                 
-                # Bazaga pending to'lovni saqlash
                 async with db_pool.acquire() as conn:
                     await conn.execute(
                         "INSERT INTO deposits (track_id, user_id, amount) VALUES ($1, $2, $3)",
@@ -163,7 +163,6 @@ async def create_oxapay_invoice(user_id: int, amount: float):
                 return pay_url
             return None
 
-# Webhook xabarlarini qabul qilish (OxaPay callback)
 async def oxapay_webhook_handler(request):
     try:
         data = await request.json()
@@ -177,17 +176,15 @@ async def oxapay_webhook_handler(request):
                     user_id = dep['user_id']
                     amount = dep['amount']
 
-                    # Statusni yangilash va balansni oshirish
                     await conn.execute("UPDATE deposits SET status = 'paid' WHERE track_id = $1", track_id)
                     await conn.execute("UPDATE users SET balance = balance + $1 WHERE user_id = $2", amount, user_id)
 
-                    # Foydalanuvchiga xabar yuborish
                     await bot.send_message(
                         chat_id=user_id,
-                        text=f"✅ **DEPOSIT SUCCESSFUL!**\n\n"
-                             f"💵 Amount: `{amount:.3f} USDT`\n"
+                        text=f"✅ <b>DEPOSIT SUCCESSFUL!</b>\n\n"
+                             f"💵 Amount: <code>{amount:.3f} USDT</code>\n"
                              f"💳 Your balance has been automatically credited!",
-                        parse_mode="Markdown"
+                        parse_mode="HTML"
                     )
         return web.Response(text="OK", status=200)
     except Exception as e:
@@ -215,12 +212,12 @@ async def start_handler(message: types.Message, state: FSMContext):
     await get_or_create_user(message.from_user.id, referrer_id)
 
     await message.answer(
-        "👋 **Welcome to the Bot!**\n\n"
+        "👋 <b>Welcome to the Bot!</b>\n\n"
         "👤 Gain real active subscribers for your Telegram channels or earn USDT by joining channels!\n\n"
-        f"📢 **Orders Feed Channel:** {ORDERS_CHANNEL}\n"
-        "For more details, check the **«ℹ️ Help»** menu.",
+        f"📢 <b>Orders Feed Channel:</b> {html.escape(ORDERS_CHANNEL)}\n"
+        "For more details, check the <b>«ℹ️ Help»</b> menu.",
         reply_markup=main_menu,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 # 👑 ADMIN PANEL
@@ -235,16 +232,16 @@ async def admin_panel(message: types.Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"👑 **Welcome Admin, @{ADMIN_USERNAME}!**\n\nSelect an action:",
+        f"👑 <b>Welcome Admin, @{html.escape(ADMIN_USERNAME)}!</b>\n\nSelect an action:",
         reply_markup=admin_kb,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @dp.callback_query(F.data == "admin_add_bal")
 async def admin_start_add_bal(call: types.CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user):
         return
-    await call.message.answer("📥 **Enter User Telegram ID:**")
+    await call.message.answer("📥 <b>Enter User Telegram ID:</b>", parse_mode="HTML")
     await state.set_state(AdminAddBalanceState.waiting_for_target_id)
 
 @dp.message(AdminAddBalanceState.waiting_for_target_id)
@@ -265,10 +262,10 @@ async def admin_process_target_id(message: types.Message, state: FSMContext):
 
     await state.update_data(target_id=target_id)
     await message.answer(
-        f"👤 **Target User:** `{target_id}`\n"
-        f"💳 **Current Balance:** `{row['balance']:.3f} USDT`\n\n"
+        f"👤 <b>Target User:</b> <code>{target_id}</code>\n"
+        f"💳 <b>Current Balance:</b> <code>{row['balance']:.3f} USDT</code>\n\n"
         f"💵 Enter USDT amount to add:",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await state.set_state(AdminAddBalanceState.waiting_for_add_amount)
 
@@ -292,18 +289,18 @@ async def admin_process_add_amount(message: types.Message, state: FSMContext):
         new_bal = row['balance']
 
     await message.answer(
-        f"✅ **Balance Updated!**\n\n"
-        f"👤 User ID: `{target_id}`\n"
-        f"➕ Added: `{add_amount:.3f} USDT`\n"
-        f"💳 New Balance: `{new_bal:.3f} USDT`",
-        parse_mode="Markdown"
+        f"✅ <b>Balance Updated!</b>\n\n"
+        f"👤 User ID: <code>{target_id}</code>\n"
+        f"➕ Added: <code>{add_amount:.3f} USDT</code>\n"
+        f"💳 New Balance: <code>{new_bal:.3f} USDT</code>",
+        parse_mode="HTML"
     )
 
     try:
         await bot.send_message(
             chat_id=target_id,
-            text=f"🎁 **GIVEAWAY BONUS RECEIVED!**\n\nYou received `+{add_amount:.3f} USDT`!\n💳 **New Balance:** `{new_bal:.3f} USDT`",
-            parse_mode="Markdown"
+            text=f"🎁 <b>GIVEAWAY BONUS RECEIVED!</b>\n\nYou received <code>+{add_amount:.3f} USDT</code>!\n💳 <b>New Balance:</b> <code>{new_bal:.3f} USDT</code>",
+            parse_mode="HTML"
         )
     except Exception:
         pass
@@ -330,10 +327,10 @@ async def bonus_handler(message: types.Message, state: FSMContext):
             new_row = await conn.fetchrow("SELECT balance FROM users WHERE user_id = $1", user_id)
 
             await message.answer(
-                f"🎉 **Daily Bonus Claimed!**\n\n"
-                f"You received `+{DAILY_BONUS:.3f} USDT`.\n"
-                f"Current Balance: `{new_row['balance']:.3f} USDT`",
-                parse_mode="Markdown"
+                f"🎉 <b>Daily Bonus Claimed!</b>\n\n"
+                f"You received <code>+{DAILY_BONUS:.3f} USDT</code>.\n"
+                f"Current Balance: <code>{new_row['balance']:.3f} USDT</code>",
+                parse_mode="HTML"
             )
 
 # ℹ️ HELP
@@ -345,19 +342,19 @@ async def help_handler(message: types.Message, state: FSMContext):
         [InlineKeyboardButton(text="💬 Contact Support", url=f"https://t.me/{ADMIN_USERNAME}")]
     ])
     await message.answer(
-        "ℹ️ **Help & Information Guide:**\n\n"
-        "• **🎯 Earn:** Subscribe to promoted channels and earn real USDT.\n"
-        "• **🛒 Create Order:** Promote your channel to get real active subscribers.\n"
-        "• **💳 Wallet / Deposit:** Top up your balance via Crypto (USDT).\n"
-        "• **🎁 Daily Bonus:** Claim free USDT rewards every 24 hours.\n"
-        "• **👥 Referral:** Invite friends and earn commission on their activity.\n\n"
-        f"👨‍💻 **Admin / Support:** @{ADMIN_USERNAME}\n"
-        f"📢 **Public Orders Feed:** {ORDERS_CHANNEL}",
+        "ℹ️ <b>Help & Information Guide:</b>\n\n"
+        "• <b>🎯 Earn:</b> Subscribe to promoted channels and earn real USDT.\n"
+        "• <b>🛒 Create Order:</b> Promote your channel to get real active subscribers.\n"
+        "• <b>💳 Wallet / Deposit:</b> Top up your balance via Crypto (USDT).\n"
+        "• <b>🎁 Daily Bonus:</b> Claim free USDT rewards every 24 hours.\n"
+        "• <b>👥 Referral:</b> Invite friends and earn commission on their activity.\n\n"
+        f"👨‍💻 <b>Admin / Support:</b> @{html.escape(ADMIN_USERNAME)}\n"
+        f"📢 <b>Public Orders Feed:</b> {html.escape(ORDERS_CHANNEL)}",
         reply_markup=help_kb,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
-# 💳 WALLET & AVTOMATIK DEPOSIT
+# 💳 WALLET & DEPOSIT
 @dp.message(F.text == "💳 Wallet / Deposit")
 async def wallet_handler(message: types.Message, state: FSMContext):
     await state.clear()
@@ -370,19 +367,19 @@ async def wallet_handler(message: types.Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"💳 **Your Account Balance**\n\n"
-        f"Balance: `{balance:.3f} USDT`\n"
-        f"User ID: `{message.from_user.id}`\n\n"
+        f"💳 <b>Your Account Balance</b>\n\n"
+        f"Balance: <code>{balance:.3f} USDT</code>\n"
+        f"User ID: <code>{message.from_user.id}</code>\n\n"
         f"Click the button below to top up automatically via OxaPay:",
         reply_markup=deposit_kb,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @dp.callback_query(F.data == "start_deposit")
 async def start_deposit_callback(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer(
-        f"💵 **Enter deposit amount in USDT** (Minimum: `{MIN_DEPOSIT:.2f} USDT`):",
-        parse_mode="Markdown"
+        f"💵 <b>Enter deposit amount in USDT</b> (Minimum: <code>{MIN_DEPOSIT:.2f} USDT</code>):",
+        parse_mode="HTML"
     )
     await state.set_state(DepositState.waiting_for_amount)
 
@@ -391,7 +388,7 @@ async def process_deposit_amount(message: types.Message, state: FSMContext):
     try:
         amount = float(message.text)
         if amount < MIN_DEPOSIT:
-            await message.answer(f"❌ Minimum deposit amount is `{MIN_DEPOSIT:.2f} USDT`!")
+            await message.answer(f"❌ Minimum deposit amount is <code>{MIN_DEPOSIT:.2f} USDT</code>!", parse_mode="HTML")
             return
 
         pay_url = await create_oxapay_invoice(message.from_user.id, amount)
@@ -401,12 +398,12 @@ async def process_deposit_amount(message: types.Message, state: FSMContext):
                 [InlineKeyboardButton(text="💳 Pay via OxaPay", url=pay_url)]
             ])
             await message.answer(
-                f"🧾 **Invoice Created!**\n\n"
-                f"Amount: `{amount:.2f} USDT`\n"
+                f"🧾 <b>Invoice Created!</b>\n\n"
+                f"Amount: <code>{amount:.2f} USDT</code>\n"
                 f"Status: Waiting for payment...\n\n"
                 f"Click the button below to complete the payment. Your balance will be credited automatically upon confirmation!",
                 reply_markup=pay_kb,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
         else:
             await message.answer("⚠️ Error creating payment link. Please try again or contact support.")
@@ -429,11 +426,11 @@ async def ref_handler(message: types.Message, state: FSMContext):
         ref_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE referrer_id = $1", user_id)
 
     await message.answer(
-        f"👥 **Referral Program**\n\n"
-        f"Earn **{REFERRAL_BONUS:.3f} USDT** for every active user invited!\n\n"
-        f"📊 **Total Invited:** `{ref_count}` users\n"
-        f"🔗 **Your Referral Link:**\n`{ref_link}`",
-        parse_mode="Markdown"
+        f"👥 <b>Referral Program</b>\n\n"
+        f"Earn <b>{REFERRAL_BONUS:.3f} USDT</b> for every active user invited!\n\n"
+        f"📊 <b>Total Invited:</b> <code>{ref_count}</code> users\n"
+        f"🔗 <b>Your Referral Link:</b>\n<code>{ref_link}</code>",
+        parse_mode="HTML"
     )
 
 # 🎯 EARN
@@ -444,12 +441,12 @@ async def earn_handler(message: types.Message, state: FSMContext):
         [InlineKeyboardButton(text="👣 Open Feed Channel", url=f"https://t.me/{ORDERS_CHANNEL[1:]}")]
     ])
     await message.answer(
-        f"👣 Go to the **{ORDERS_CHANNEL}** channel and subscribe to the advertised channels. "
-        f"You will receive **{SUB_REWARD:.3f} USDT** for each channel you join!\n\n"
-        f"⚠️ **Do not leave the subscribed channel or group for 15 days!**\n"
-        f"🚫 If you unsubscribe before 15 days, a penalty of **{SUB_REWARD * 2:.3f} USDT** will be deducted from your balance!",
+        f"👣 Go to the <b>{html.escape(ORDERS_CHANNEL)}</b> channel and subscribe to the advertised channels. "
+        f"You will receive <b>{SUB_REWARD:.3f} USDT</b> for each channel you join!\n\n"
+        f"⚠️ <b>Do not leave the subscribed channel or group for 15 days!</b>\n"
+        f"🚫 If you unsubscribe before 15 days, a penalty of <b>{SUB_REWARD * 2:.3f} USDT</b> will be deducted from your balance!",
         reply_markup=earn_kb,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 # 🔄 TASK VERIFICATION
@@ -469,6 +466,7 @@ async def check_subscription(call: types.CallbackQuery):
                 return
 
             channel = order_data['channel_username']
+            clean_ch_name = html.escape(channel)
             req_c = order_data['req_count']
             done_c = order_data['done_count']
             msg_id = order_data['channel_msg_id']
@@ -494,19 +492,19 @@ async def check_subscription(call: types.CallbackQuery):
                     if msg_id:
                         if new_done_c >= req_c:
                             updated_text = (
-                                f"✅ **ORDER COMPLETED**\n\n"
-                                f"📢 **Channel:** {channel}\n"
-                                f"🎯 **Goal Reached:** {new_done_c}/{req_c} Subscribers\n"
-                                f"🆔 **Order ID:** #{order_id}"
+                                f"✅ <b>ORDER COMPLETED</b>\n\n"
+                                f"📢 <b>Channel:</b> {clean_ch_name}\n"
+                                f"🎯 <b>Goal Reached:</b> {new_done_c}/{req_c} Subscribers\n"
+                                f"🆔 <b>Order ID:</b> #{order_id}"
                             )
                             kb = None
                         else:
                             updated_text = (
-                                f"📌 **NEW ORDER AVAILABLE**\n\n"
-                                f"📢 **Channel:** {channel}\n"
-                                f"📊 **Progress:** {new_done_c}/{req_c} Subscribers\n"
-                                f"💰 **Reward per sub:** `{SUB_REWARD:.3f} USDT`\n"
-                                f"🆔 **Order ID:** #{order_id}"
+                                f"📌 <b>NEW ORDER AVAILABLE</b>\n\n"
+                                f"📢 <b>Channel:</b> {clean_ch_name}\n"
+                                f"📊 <b>Progress:</b> {new_done_c}/{req_c} Subscribers\n"
+                                f"💰 <b>Reward per sub:</b> <code>{SUB_REWARD:.3f} USDT</code>\n"
+                                f"🆔 <b>Order ID:</b> #{order_id}"
                             )
                             kb = InlineKeyboardMarkup(inline_keyboard=[
                                 [
@@ -516,7 +514,7 @@ async def check_subscription(call: types.CallbackQuery):
                             ])
 
                         try:
-                            await bot.edit_message_text(chat_id=ORDERS_CHANNEL, message_id=msg_id, text=updated_text, reply_markup=kb, parse_mode="Markdown")
+                            await bot.edit_message_text(chat_id=ORDERS_CHANNEL, message_id=msg_id, text=updated_text, reply_markup=kb, parse_mode="HTML")
                         except Exception:
                             pass
 
@@ -532,7 +530,7 @@ async def check_subscription(call: types.CallbackQuery):
 @dp.message(F.text == "🛒 Create Order")
 async def order_start(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer("📢 Send your channel username (e.g., `@my_channel`):")
+    await message.answer("📢 Send your channel username (e.g., <code>@my_channel</code>):", parse_mode="HTML")
     await state.set_state(OrderState.waiting_for_channel)
 
 @dp.message(OrderState.waiting_for_channel)
@@ -544,11 +542,11 @@ async def process_channel(message: types.Message, state: FSMContext):
         return
 
     if not channel.startswith("@"):
-        await message.answer("❌ Invalid format! Channel username must start with `@` (e.g. `@my_channel`).")
+        await message.answer("❌ Invalid format! Channel username must start with <code>@</code> (e.g. <code>@my_channel</code>).", parse_mode="HTML")
         return
 
     await state.update_data(channel=channel)
-    await message.answer(f"🔢 Enter subscriber count (Price: **{SUB_PRICE:.3f} USDT** per sub):", parse_mode="Markdown")
+    await message.answer(f"🔢 Enter subscriber count (Price: <b>{SUB_PRICE:.3f} USDT</b> per sub):", parse_mode="HTML")
     await state.set_state(OrderState.waiting_for_count)
 
 @dp.message(OrderState.waiting_for_count)
@@ -575,17 +573,18 @@ async def process_count(message: types.Message, state: FSMContext):
 
         if balance < total_price:
             await message.answer(
-                f"❌ **Insufficient Balance!**\n\n"
-                f"Total Required: `{total_price:.3f} USDT`\n"
-                f"Your Balance: `{balance:.3f} USDT`\n\n"
-                f"Please top up your balance via **Wallet / Deposit**.",
-                parse_mode="Markdown"
+                f"❌ <b>Insufficient Balance!</b>\n\n"
+                f"Total Required: <code>{total_price:.3f} USDT</code>\n"
+                f"Your Balance: <code>{balance:.3f} USDT</code>\n\n"
+                f"Please top up your balance via <b>Wallet / Deposit</b>.",
+                parse_mode="HTML"
             )
             await state.clear()
             return
 
         data = await state.get_data()
         channel = data['channel']
+        clean_ch_name = html.escape(channel)
 
         try:
             await conn.execute("UPDATE users SET balance = balance - $1 WHERE user_id = $2", total_price, user_id)
@@ -604,14 +603,14 @@ async def process_count(message: types.Message, state: FSMContext):
             feed_msg = await bot.send_message(
                 chat_id=ORDERS_CHANNEL,
                 text=(
-                    f"📌 **NEW ORDER CREATED**\n\n"
-                    f"📢 **Channel:** {channel}\n"
-                    f"📊 **Progress:** 0/{count} Subscribers\n"
-                    f"💰 **Reward per sub:** `{SUB_REWARD:.3f} USDT`\n"
-                    f"🆔 **Order ID:** #{order_id}"
+                    f"📌 <b>NEW ORDER CREATED</b>\n\n"
+                    f"📢 <b>Channel:</b> {clean_ch_name}\n"
+                    f"📊 <b>Progress:</b> 0/{count} Subscribers\n"
+                    f"💰 <b>Reward per sub:</b> <code>{SUB_REWARD:.3f} USDT</code>\n"
+                    f"🆔 <b>Order ID:</b> #{order_id}"
                 ),
                 reply_markup=feed_kb,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
 
             await conn.execute("UPDATE orders SET channel_msg_id = $1 WHERE id = $2", feed_msg.message_id, order_id)
@@ -620,17 +619,17 @@ async def process_count(message: types.Message, state: FSMContext):
             new_balance = new_bal_row['balance']
 
             await message.answer(
-                f"✅ **ORDER PLACED SUCCESSFULLY!**\n\n"
-                f"🆔 **Order ID:** #{order_id}\n"
-                f"📢 **Target Channel:** {channel}\n"
-                f"👥 **Subscribers Ordered:** {count}\n"
-                f"💵 **Total Cost:** `{total_price:.3f} USDT`\n"
-                f"💳 **Remaining Balance:** `{new_balance:.3f} USDT`\n\n"
-                f"🚀 Your task is now live in {ORDERS_CHANNEL}!",
-                parse_mode="Markdown"
+                f"✅ <b>ORDER PLACED SUCCESSFULLY!</b>\n\n"
+                f"🆔 <b>Order ID:</b> #{order_id}\n"
+                f"📢 <b>Target Channel:</b> {clean_ch_name}\n"
+                f"👥 <b>Subscribers Ordered:</b> {count}\n"
+                f"💵 <b>Total Cost:</b> <code>{total_price:.3f} USDT</code>\n"
+                f"💳 <b>Remaining Balance:</b> <code>{new_balance:.3f} USDT</code>\n\n"
+                f"🚀 Your task is now live in {html.escape(ORDERS_CHANNEL)}!",
+                parse_mode="HTML"
             )
         except Exception as e:
-            await message.answer(f"⚠️ **Error publishing order:**\n`{str(e)}`", parse_mode="Markdown")
+            await message.answer(f"⚠️ <b>Error publishing order:</b>\n<code>{html.escape(str(e))}</code>", parse_mode="HTML")
 
     await state.clear()
 
@@ -640,7 +639,6 @@ async def main():
         await init_db()
         logging.info("✅ Supabase Connected.")
 
-        # Webhook va Bot Pollingni parallel yurgazish uchun Aiohttp Server
         app = web.Application()
         app.router.add_post("/oxapay_callback", oxapay_webhook_handler)
 
